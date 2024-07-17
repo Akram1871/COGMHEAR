@@ -1,5 +1,5 @@
 import os
-os.environ["KERAS_BACKEND"] = "tensorflow" # "torch"
+os.environ["KERAS_BACKEND"] = "torch" # "torch"
 from scipy import signal
 SEED = 42
 stft_size = 512
