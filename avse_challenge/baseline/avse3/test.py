@@ -15,8 +15,8 @@ from utils import *
 def main(args):
     datamodule = AVSEChallengeDataModule(data_root=args.data_root, batch_size=1, time_domain=True)
     # can be changed to test_dataset
-    test_dataset = datamodule.dev_dataset
-    # test_dataset = datamodule.test_dataset
+    # test_dataset = datamodule.dev_dataset
+    test_dataset = datamodule.test_dataset
 
     makedirs(args.save_root, exist_ok=True)
 

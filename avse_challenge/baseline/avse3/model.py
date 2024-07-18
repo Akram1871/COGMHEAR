@@ -2,6 +2,11 @@ from config import *
 from keras import Input
 from model_utils import *
 
+# Instantiate your ConvNextEncoder
+in_channels = 21
+stem_features = 128
+depths = [3,3,9,6]
+widths = [128, 256, 512, 1024]
 
 @keras.saving.register_keras_serializable(name="VisualFeatNet")
 class VisualFeatNet(Layer):
@@ -12,7 +17,8 @@ class VisualFeatNet(Layer):
         self.frontend_nout = 64
         self.backend_out = 512
         self.hidden_dim = hidden_dim
-        self.trunk = ResNet18()
+        # self.trunk = ResNet18()
+        self.trunk = ConvNextEncoder(in_channels, stem_features, depths, widths)
         self.frontend3D = Sequential([
             nn.Conv3D(self.frontend_nout, kernel_size=(5, 7, 7), strides=(1, 2, 2), padding="same", use_bias=False),
             nn.BatchNormalization(),

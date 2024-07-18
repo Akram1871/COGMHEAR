@@ -12,6 +12,102 @@ from keras.layers import Conv2D, MaxPool2D, Flatten, GlobalAveragePooling2D, Bat
 from keras.models import Model
 
 
+class ConvNormAct(Layer):
+    """
+    A little util layer composed by (conv) -> (norm) -> (act) layers.
+    """
+    def __init__(self, in_features, out_features, kernel_size, norm=BatchNormalization, act=Activation('relu'), **kwargs):
+        super().__init__()
+        self.conv = Conv2D(out_features, kernel_size=kernel_size, padding='same', **kwargs)
+        self.norm = norm()
+        self.act = act
+
+    def call(self, inputs):
+        x = self.conv(inputs)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+
+class BottleNeckBlock(Layer):
+    def __init__(self, in_features, out_features, reduction=4, stride=1):
+        super().__init__()
+        reduced_features = out_features // reduction
+        self.block = [
+            ConvNormAct(in_features, reduced_features, kernel_size=1, strides=stride, use_bias=False),
+            ConvNormAct(reduced_features, reduced_features, kernel_size=3, use_bias=False),
+            ConvNormAct(reduced_features, out_features, kernel_size=1, use_bias=False, act=Activation('linear')),
+        ]
+        self.shortcut = (
+            ConvNormAct(in_features, out_features, kernel_size=1, strides=stride, use_bias=False)
+            if in_features != out_features
+            else Activation('linear')
+        )
+        self.act = Activation('relu')
+
+    def call(self, inputs):
+        res = inputs
+        for layer in self.block:
+            inputs = layer(inputs)
+        res = self.shortcut(res)
+        inputs = ops.add(inputs, res)
+        inputs = self.act(inputs)
+        return inputs
+
+class ConvNextStage(Layer):
+    def __init__(self, in_features, out_features, depth, stride=2):
+        super().__init__()
+        self.blocks = [BottleNeckBlock(in_features, out_features, stride=stride)]
+        self.blocks.extend([BottleNeckBlock(out_features, out_features) for _ in range(depth - 1)])
+
+    def call(self, inputs):
+        x = inputs
+        for block in self.blocks:
+            x = block(x)
+        return x
+
+class ConvNextStem(Layer):
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        self.stem = [
+            ConvNormAct(in_features, out_features, kernel_size=7, strides=2),
+            MaxPool2D(pool_size=3, strides=2, padding='same')
+        ]
+
+    def call(self, inputs):
+        x = inputs
+        for layer in self.stem:
+            x = layer(x)
+        return x
+
+@keras.saving.register_keras_serializable(package="avse", name="ConvNextEncoder")
+class ConvNextEncoder(Layer):
+    def __init__(self, in_channels, stem_features, depths, widths):
+        super().__init__()
+        self.stem = ConvNextStem(in_channels, stem_features)
+
+        in_out_widths = list(zip(widths, widths[1:]))
+
+        self.stages = [
+            ConvNextStage(stem_features, widths[0], depths[0], stride=1),
+            *[
+                ConvNextStage(in_features, out_features, depth)
+                for (in_features, out_features), depth in zip(in_out_widths, depths[1:])
+            ],
+        ]
+
+        self.global_avg_pool = GlobalAveragePooling2D()
+        self.linear = layers.Dense(512)
+
+    def call(self, inputs):
+        x = self.stem(inputs)
+        for stage in self.stages:
+            x = stage(x)
+        x = self.global_avg_pool(x)
+        x = Flatten()(x)
+        x = self.linear(x)
+        return x
+
+
 class ResnetBlock(Layer):
     def __init__(self, channels: int, down_sample=False):
         super().__init__()
@@ -440,8 +536,8 @@ class TCN(Layer):
 if __name__ == '__main__':
     model = TCN(return_sequences=True, )
     print(model(ops.ones((1, 100, 100))).shape)
-    model = ResNet18()
-    input_data = ops.ones(shape=(8, 224, 224, 3))
+    model = ConvNextEncoder(21, 64, [3, 4, 6], [128, 256, 512, 1024])
+    input_data = ops.ones(shape=(1024, 21, 21, 64))
     output = model(input_data)
     print(model)
     print(output.shape)
