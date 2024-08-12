@@ -3,10 +3,10 @@ from keras import Input
 from model_utils import *
 
 # Instantiate your ConvNextEncoder
-in_channels = 21
+in_channels = 1
 stem_features = 128
-depths = [3,3,9,6]
-widths = [128, 256, 512, 1024]
+depths = [3,3,9,3]
+widths = [256, 512, 1024, 2048]
 
 @keras.saving.register_keras_serializable(name="VisualFeatNet")
 class VisualFeatNet(Layer):
@@ -33,11 +33,12 @@ class VisualFeatNet(Layer):
                        dropout_rate=self.tcn_options["dropout"])
 
     def call(self, x):
-        x = self.frontend3D(x)
+        # x = self.frontend3D(x)
         B, T, H, W, C = x.shape
         if B is None:
             B = 1
         x = ops.reshape(x, (-1, H, W, C))
+        print("input shape of ConvNext = ",x.shape)
         x = self.trunk(x)
         x = ops.reshape(x, (B, T, -1))
         x = self.tcn(x)

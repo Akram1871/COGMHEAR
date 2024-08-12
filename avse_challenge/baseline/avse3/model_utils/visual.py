@@ -29,20 +29,31 @@ class ConvNormAct(Layer):
         return x
 
 class BottleNeckBlock(Layer):
-    def __init__(self, in_features, out_features, reduction=4, stride=1):
+    def __init__(self, in_features, out_features, expansion=4, stride=1):
         super().__init__()
-        reduced_features = out_features // reduction
+        # reduced_features = out_features // reduction
+        expanded_features = out_features * expansion
         self.block = [
-            ConvNormAct(in_features, reduced_features, kernel_size=1, strides=stride, use_bias=False),
-            ConvNormAct(reduced_features, reduced_features, kernel_size=3, use_bias=False),
-            ConvNormAct(reduced_features, out_features, kernel_size=1, use_bias=False, act=Activation('linear')),
+            # # narrow -> wide
+            # ConvNormAct(in_features, expanded_features, kernel_size=1, strides=stride, use_bias=False),
+            # # wide -> wide (with depth-wise)
+            # ConvNormAct(expanded_features, expanded_features, kernel_size=3, use_bias=False,groups=in_features),
+            # # wide -> narrow
+            # ConvNormAct(expanded_features, out_features, kernel_size=1, use_bias=False, act=Activation('linear')),
+
+             # narrow -> wide (with depth-wise and bigger kernel)
+            ConvNormAct( in_features, in_features, kernel_size=7, strides=stride, use_bias=False, groups=in_features),
+            # wide -> wide 
+            ConvNormAct(in_features, expanded_features, kernel_size=1),
+            # wide -> narrow
+            ConvNormAct(expanded_features, out_features, kernel_size=1, use_bias=False, act=Activation('linear')),
         ]
         self.shortcut = (
             ConvNormAct(in_features, out_features, kernel_size=1, strides=stride, use_bias=False)
             if in_features != out_features
             else Activation('linear')
         )
-        self.act = Activation('relu')
+        self.act = Activation('gelu')
 
     def call(self, inputs):
         res = inputs
@@ -65,18 +76,30 @@ class ConvNextStage(Layer):
             x = block(x)
         return x
 
+# class ConvNextStem(Layer):
+#     def __init__(self, in_features, out_features):
+#         super().__init__()
+#         self.stem = [
+#             ConvNormAct(in_features, out_features, kernel_size=7, strides=2),
+#             MaxPool2D(pool_size=3, strides=2, padding='same')
+#         ]
+
+#     def call(self, inputs):
+#         x = inputs
+#         for layer in self.stem:
+#             x = layer(x)
+#         return x
+
+# Changing stem to Patchify 
 class ConvNextStem(Layer):
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features: int, out_features: int, **kwargs):
         super().__init__()
-        self.stem = [
-            ConvNormAct(in_features, out_features, kernel_size=7, strides=2),
-            MaxPool2D(pool_size=3, strides=2, padding='same')
-        ]
+        self.conv = Conv2D(out_features, kernel_size=4, strides=4, padding='same')
+        self.bn = BatchNormalization()
 
     def call(self, inputs):
-        x = inputs
-        for layer in self.stem:
-            x = layer(x)
+        x = self.conv(inputs)
+        x = self.bn(x)
         return x
 
 @keras.saving.register_keras_serializable(package="avse", name="ConvNextEncoder")
@@ -97,11 +120,16 @@ class ConvNextEncoder(Layer):
 
         self.global_avg_pool = GlobalAveragePooling2D()
         self.linear = layers.Dense(512)
+        self.cnt = 0
 
     def call(self, inputs):
         x = self.stem(inputs)
+        self.cnt = 0
         for stage in self.stages:
+            print("stage {count} input = {x_val}".format(count=self.cnt+1,x_val=x.shape))
             x = stage(x)
+            print("stage {count} output = {x_val}".format(count=self.cnt+1,x_val=x.shape))
+            self.cnt+=1
         x = self.global_avg_pool(x)
         x = Flatten()(x)
         x = self.linear(x)
@@ -536,7 +564,7 @@ class TCN(Layer):
 if __name__ == '__main__':
     model = TCN(return_sequences=True, )
     print(model(ops.ones((1, 100, 100))).shape)
-    model = ConvNextEncoder(21, 64, [3, 4, 6], [128, 256, 512, 1024])
+    model = ConvNextEncoder(21, 64, [3, 3, 9, 3], [256, 512, 1024, 2048])
     input_data = ops.ones(shape=(1024, 21, 21, 64))
     output = model(input_data)
     print(model)
