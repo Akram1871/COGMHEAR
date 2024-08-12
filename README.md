@@ -22,7 +22,7 @@ avsec3_data_root
         ├── S34526_silent.mp4
         └── S34526_target.wav
 ```
-- Change dataset root path in `config.py`.
+
 
 ### Clone the repository
 ```bash
